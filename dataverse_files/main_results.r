@@ -1,6 +1,8 @@
 ##main_results.r
 ####primary randomization inferece
 
+options(xtable.comment = FALSE)
+
 ###inference
 repeats = c("numberim","Remain","Englishlan")
 

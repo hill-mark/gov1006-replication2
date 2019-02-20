@@ -1,5 +1,6 @@
 ##subset_inference.r
-	
+
+options(xtable.comment = FALSE)
 
 repeats = c("numberim","Remain","Englishlan")
 

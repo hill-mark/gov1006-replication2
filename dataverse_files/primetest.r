@@ -3,6 +3,8 @@
 ####RdE September 2012
 
 
+options(xtable.comment = FALSE)
+
 #####recodes
 ####race variable
 dat.all.prime$non.white = ifelse(dat.all.prime$race_4 == 1, 1,0)

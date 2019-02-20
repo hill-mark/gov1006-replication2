@@ -13,7 +13,7 @@ library(effects)
 library(RColorBrewer)
 ############################
 
-options(scipen = 999)  ##set for non-scientific notaion output
+options(scipen = 999, xtable.comment = FALSE)  ##set for non-scientific notaion output
 
 ##Load data
 dat.all = read.csv('pnas_dat/pnas_data.csv')

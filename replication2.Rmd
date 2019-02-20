@@ -1,0 +1,681 @@
+---
+title: "Replication 2"
+author: "John LaVelle"
+date: "2/17/2019"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment=NA )
+```
+
+Purpose of this first week's work:
+
+"We spend two weeks on each replication exercise. In the first week, you should replicate the published work. This is mainly an exercise in getting [the preexisting] code to run. But you should also add lots of comments. How might the code be improved? Why have they made the choices they made? What other approaches might be worth trying? What don’t you understand?"
+
+\newpage
+```{r, include=FALSE}
+
+library(janitor)
+library(xtable)
+library(RItools)
+library(ri)
+library(RColorBrewer)
+library(gt)
+library(dplyr)
+library(tidyverse)
+
+
+# elminates dirty line before xtable
+options(xtable.comment = FALSE)
+
+
+
+# Loading in the data using read_csv instead of read.csv
+pnas_data   <- read.csv("dataverse_files/pnas_dat/pnas_data.csv")
+t1_data     <- read.csv("dataverse_files/pnas_dat/t1_data.csv")
+prime_data  <- read.csv("dataverse_files/pnas_dat/prime_data.csv")
+confed_data <- read.csv("dataverse_files/pnas_dat/confederate_face_data.csv")
+hisp_data   <- read.csv("dataverse_files/pnas_dat/hispanic_face_data.csv")
+white_data  <- read.csv("dataverse_files/pnas_dat/white_face_data.csv")
+
+
+```
+
+
+```{r, main, include=FALSE}
+# originally taken from main_results.r 
+
+###inference
+repeats = c("numberim","Remain","Englishlan")
+x.names = paste(repeats,".x",sep="")
+y.names = paste(repeats,".y",sep="")
+covariates = c('line.x')
+
+###treated first
+final.mat = matrix(nrow = 0, ncol = 8)
+
+subsets = c('all','no.car')
+
+for(subset in subsets){
+
+  # make column of appropriate length
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	
+	# choose data fo the analysis
+	if(subset == 'all'){
+		dat.subset = pnas_data
+		}
+	if(subset ==  'no.car'){
+		dat.subset = pnas_data[pnas_data$habits != 1,]
+		}
+
+		
+	z.variable = 'treatment'
+	
+	# compute summary statistics
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+		
+		dat.use = dat.subset[is.na(dat.subset$Y) == F,]
+		
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+		y.mean = mean(dat.use$y.new,na.rm = T)
+		y.treat = mean(dat.use$y.new[dat.use$treatment==1],na.rm = T)
+	
+		station.treatment.table = table(dat.use$station,dat.use[,z.variable])
+		no.control.stations = names(which(station.treatment.table[,1] == 0))
+		no.treatment.stations = names(which(station.treatment.table[,2] == 0))
+		dat.use = dat.use[!dat.use$station%in%c(no.control.stations,no.treatment.stations),]
+				
+		
+		dat.use$station = factor(dat.use$station)
+		dat.use$treated_unit = factor(dat.use$treated_unit)
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		probs = genprobexact(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = 0)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = disp$greater.p.value
+		out.mat[j,6] = disp$lesser.p.value
+		out.mat[j,7] = x.sd
+		out.mat[j,8] = x.mean
+		}
+	final.mat = rbind(final.mat,out.mat)
+	}
+
+final.mat = as.data.frame(final.mat)
+colnames(final.mat) = c('variable','subset','N','ate','greater.p.value','lesser.p.value','x.sd','x.mean')
+
+final.mat.main = final.mat ##final.mat for output creation later
+
+
+```
+
+```{r subset_interference, include=FALSE, cache=TRUE}
+# taken from subset_inference.r
+
+# looks like this code breaks the data up by political group, and then analyzes each subgroup
+
+repeats = c("numberim","Remain","Englishlan")
+
+x.names = paste(repeats,".x",sep="")
+y.names = paste(repeats,".y",sep="")
+covariates = c('line.x')
+var.names = c('Number of immigrants be increased?','Children of undocumented be allowed to stay?','English as official language?')
+
+	
+##dose response estimates comparison
+final.mat = matrix(nrow = 0, ncol = 8)
+subsets = c('ta','tb')
+
+# compute summary statistics
+for(subset in subsets){
+  
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	if(subset == 'ta'){
+		dat.subset = pnas_data[pnas_data$t.time %in% c('t2a','t4a'),]
+		}
+	if(subset == 'tb'){
+		dat.subset = pnas_data[pnas_data$t.time %in% c('t2b','t4b'),]
+		}
+	z.variable = 'treatment'
+	
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+	
+		dat.use = dat.subset[is.na(dat.subset$Y) == F,]
+				
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+	
+		station.treatment.table = table(dat.use$station,dat.use[,z.variable])
+		no.control.stations = names(which(station.treatment.table[,1] == 0))
+		no.treatment.stations = names(which(station.treatment.table[,2] == 0))
+		dat.use = dat.use[!dat.use$station%in%c(no.control.stations,no.treatment.stations),]
+		
+		dat.use$station = factor(dat.use$station)
+		dat.use$treated_unit = factor(dat.use$treated_unit)
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		probs = genprobexact(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = ate)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		##fill matrix
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = x.mean
+		out.mat[j,6] = x.sd
+		out.mat[j,7] = disp$quantile[1]
+		out.mat[j,8] = disp$quantile[2]
+		}
+		final.mat = rbind(final.mat,out.mat)
+	}
+final.mat = as.data.frame(final.mat)
+colnames(final.mat) = c('variable','subset','N','ate','x.mean','x.sd','quantile.lower','quantile.upper')
+
+final.mat.dose = final.mat ##mat for creating graph later
+	
+##ideology comparison
+final.mat = matrix(nrow = 0, ncol = 8)
+subsets = c('liberals.only','moderates.only','conservatives.only')
+
+for(subset in subsets){ 
+
+  # segment the data into groups
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	if(subset == 'liberals.only'){
+		dat.subset = pnas_data[pnas_data$ideology.x %in% c(1,2),]
+		}
+	if(subset == 'conservatives.only'){
+		dat.subset = pnas_data[pnas_data$ideology.x %in% c(4,5),]
+		}
+	if(subset == 'moderates.only'){
+		dat.subset = pnas_data[pnas_data$ideology.x == 3,]
+		}
+	z.variable = 'treatment'
+	
+	
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+			
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+		
+		station.treatment.table = table(dat.use$station,dat.use[,z.variable])
+		no.control.stations = names(which(station.treatment.table[,1] == 0))
+		no.treatment.stations = names(which(station.treatment.table[,2] == 0))
+		dat.use = dat.use[!dat.use$station%in%c(no.control.stations,no.treatment.stations),]
+		
+		# get summary stats
+		dat.use$station = factor(dat.use$station)
+		dat.use$treated_unit = factor(dat.use$treated_unit)
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		probs = genprobexact(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = ate)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		##fill matrix
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = x.mean
+		out.mat[j,6] = x.sd
+		out.mat[j,7] = disp$quantile[1]
+		out.mat[j,8] = disp$quantile[2]
+		
+		}
+	final.mat = rbind(final.mat,out.mat)
+	}
+final.mat = as.data.frame(final.mat)
+colnames(final.mat) = c('variable','subset','N','ate','x.mean','x.sd','quantile.lower','quantile.upper')
+
+final.mat.ideology = final.mat ##for graph later
+
+
+##friends comparison
+final.mat = matrix(nrow = 0, ncol = 8)
+subsets = c('low.friends','high.friends','middle.friends')
+
+
+for(subset in subsets){ 
+
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	if(subset == 'low.friends'){
+		dat.subset = pnas_data[pnas_data$Friends.x == 0,]
+		}
+	if(subset == 'high.friends'){
+		dat.subset = pnas_data[pnas_data$Friends.x >= 5,]
+		}
+	if(subset == 'middle.friends'){
+		dat.subset = pnas_data[pnas_data$Friends.x > 0 & pnas_data$Friends.x < 5,]
+		}
+	
+	z.variable = 'treatment'
+	
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+			
+		dat.use = dat.subset[is.na(dat.subset$Y) == F,]
+			
+	
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+		
+		station.treatment.table = table(dat.use$station,dat.use[,z.variable])
+		no.control.stations = names(which(station.treatment.table[,1] == 0))
+		no.treatment.stations = names(which(station.treatment.table[,2] == 0))
+		dat.use = dat.use[!dat.use$station%in%c(no.control.stations,no.treatment.stations),]
+		
+		dat.use$station = factor(dat.use$station)
+		dat.use$treated_unit = factor(dat.use$treated_unit)
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		probs = genprobexact(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = ate)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		##fill matrix
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = x.mean
+		out.mat[j,6] = x.sd
+		out.mat[j,7] = disp$quantile[1]
+		out.mat[j,8] = disp$quantile[2]
+		
+		}
+	final.mat = rbind(final.mat,out.mat)
+	}
+	final.mat = as.data.frame(final.mat)
+	colnames(final.mat) = c('variable','subset','N','ate','x.mean','x.sd','quantile.lower','quantile.upper')
+
+		final.mat.friends = final.mat ##for graph
+	
+
+
+#######income subsets
+subsets = c('low.income','middle.income', 'high.income')
+final.mat = matrix(nrow = 0, ncol = 8)
+for(subset in subsets){ 
+
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	
+	if(subset == 'low.income'){
+		dat.subset = pnas_data[pnas_data$income.new < 105000,]
+		}
+	if(subset == 'middle.income'){
+		dat.subset = pnas_data[pnas_data$income.new >= 105000 & pnas_data$income.new <= 135000,]
+		}
+	if(subset == 'high.income'){
+		dat.subset = pnas_data[pnas_data$income.new > 135000,]
+		}
+	
+	z.variable = 'treatment'
+	
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+			
+		dat.use = dat.subset[is.na(dat.subset$Y) == F,]
+				
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+
+		station.treatment.table = table(dat.use$station,dat.use[,z.variable])
+		no.control.stations = names(which(station.treatment.table[,1] == 0))
+		no.treatment.stations = names(which(station.treatment.table[,2] == 0))
+		dat.use = dat.use[!dat.use$station%in%c(no.control.stations,no.treatment.stations),]
+		
+		dat.use$station = factor(dat.use$station)
+		dat.use$treated_unit = factor(dat.use$treated_unit)
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+		probs = genprobexact(Z = dat.use[,z.variable], blockvar=dat.use$station, clustvar=dat.use$treated_unit)
+
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = ate)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		##fill matrix
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = x.mean
+		out.mat[j,6] = x.sd
+		out.mat[j,7] = disp$quantile[1]
+		out.mat[j,8] = disp$quantile[2]
+		
+		}
+	final.mat = rbind(final.mat,out.mat)
+	}
+final.mat = as.data.frame(final.mat)
+colnames(final.mat) = c('variable','subset','N','ate','x.mean','x.sd','quantile.lower','quantile.upper')
+
+final.mat.income = final.mat  ##for later
+
+
+
+
+```
+
+```{r, primetest, cache=TRUE, include=FALSE}
+# taken from primetest.r
+
+##primetest.r [ORIGINALLY]
+###use randomization inference to look for changes in responses induced by experiment in subsets by covariates.
+
+#####recodes
+####race variable
+prime_data$non.white = ifelse(prime_data$race_4 == 1, 1,0)
+prime_data$non.white[is.na(prime_data$non.white)==T] = 0
+prime_data$residency.new[prime_data$residency == 1] = 1
+prime_data$residency.new[prime_data$residency == 2] = 3.5
+prime_data$residency.new[prime_data$residency == 3] = 7.5
+prime_data$residency.new[prime_data$residency == 4] = 12.5
+prime_data$residency.new[prime_data$residency == 5] = mean(prime_data$age, na.rm = T)-15
+prime_data$residency.new[prime_data$residency == 6] = mean(prime_data$age, na.rm = T)
+
+#####recodes
+###English language is reverse coded from other variables:
+prime_data$Englishlan.x = recode(prime_data$Englishlan.x, 
+                                 "5" = "1", "4" = "2", "2" = "4", "1" = "5")
+prime_data$Englishlan.y = recode(prime_data$Englishlan.y, 
+                                 "5" = "1", "4" = "2", "2" = "4", "1" = "5")
+
+###gender recode
+prime_data$male = ifelse(prime_data$gender == 1, 1, 0)
+
+###inference
+repeats = c("numberim","Remain","Englishlan")
+
+x.names = paste(repeats,".x",sep="")
+y.names = paste(repeats,".y",sep="")
+
+covariates = c('line')
+final.mat = matrix(nrow = 0, ncol = 8)
+subsets = c('all.prime')
+
+for(subset in subsets){ ##b.only, complier, and non-compler subsets
+	out.mat = matrix(nrow = length(repeats), ncol = 8)
+	dat.subset = prime_data
+		
+	z.variable = 'treatment'
+	
+	for(j in 1:length(repeats)){
+		dat.subset$x.new = (as.numeric(dat.subset[,x.names[j]])-1)/4  ##rescale x to 0-1
+		dat.subset$y.new = (as.numeric(dat.subset[,y.names[j]])-1)/4  ##rescale y to 0-1
+		dat.subset$Y = dat.subset$y.new - dat.subset$x.new
+			
+		dat.use = dat.subset[is.na(dat.subset$Y) == F,]
+			
+		x.sd = sd(dat.use$x.new,na.rm = T)
+		x.mean = mean(dat.use$x.new,na.rm = T)
+		
+		Xs = data.matrix(dat.use[,covariates])
+		
+		perms <- genperms(Z = dat.use[,z.variable])
+		probs = genprobexact(Z = dat.use[,z.variable])
+		ate = estate(Y = dat.use$Y, Z = dat.use[,z.variable], X = Xs, prob = probs)
+	
+		Ys = genouts(Y = dat.use$Y, Z = dat.use[,z.variable], ate = 0)
+		distout <- gendist(Ys,perms, prob=probs)
+		disp =	dispdist(distout, ate = ate, display.plot = F)
+		
+		##fill matrix
+		out.mat[j,1] = repeats[j]
+		out.mat[j,2] = subset
+		out.mat[j,3] = nrow(dat.use)
+		out.mat[j,4] = ate
+		out.mat[j,5] = disp$greater.p.value
+		out.mat[j,6] = disp$lesser.p.value
+		out.mat[j,7] = x.sd
+		out.mat[j,8] = x.mean
+		}
+		final.mat = rbind(final.mat,out.mat)
+		}
+	final.mat = as.data.frame(final.mat)
+	colnames(final.mat) = c('variable','subset','N','ate','greater.p.value','lesser.p.value','x.sd','x.mean')
+	
+	final.mat.prime = final.mat ##mat for creating output later
+
+	
+```
+
+Table 1
+
+
+
+```{r, results="asis"}
+# Table 1
+
+#output_create.r
+	
+# ####create output
+ output.vars = c('numberim','Remain','Englishlan')
+ var.names = c('Number of immigrants be increased?','Children of undocumented be allowed to stay?','English as official language?')
+
+ 
+ ##main results
+ ##cumalative results output
+ final.mat.use = rbind(final.mat.main,final.mat.prime)
+
+ final.mat.use$greater.p.value = as.numeric(as.character(final.mat.use$greater.p.value))
+ final.mat.use$lesser.p.value = as.numeric(as.character(final.mat.use$lesser.p.value))
+ final.mat.use$ate = as.numeric(as.character(final.mat.use$ate))
+ final.mat.use$x.mean = as.numeric(as.character(final.mat.use$x.mean))
+ final.mat.use$x.sd = as.numeric(as.character(final.mat.use$x.sd))
+ final.mat.use$N = as.numeric(as.character(final.mat.use$N))
+ final.mat.use$p.value = final.mat.use$greater.p.value
+
+ final.mat.redact = final.mat.use[,c('variable','subset','ate','p.value','x.mean','x.sd','N')]
+ final.mat.redact[,c('ate','p.value','x.mean','x.sd')] = round(final.mat.redact[,c('ate','p.value','x.mean','x.sd')],3)
+
+ final.mat.redact$ate.new = paste(final.mat.redact$ate,' (',final.mat.redact$p.value,')',sep='')
+ final.mat.redact$x.mean.new = paste(final.mat.redact$x.mean,' (',final.mat.redact$x.sd,')',sep='')
+
+ out.mat.a = final.mat.redact[final.mat.redact$subset == 'all'&final.mat.redact$variable %in% output.vars,]
+
+ out.mat.a = final.mat.redact[final.mat.redact$subset == 'all'&final.mat.redact$variable %in% output.vars,c('ate.new')]	
+ out.mat.c = final.mat.redact[final.mat.redact$subset == 'no.car'&final.mat.redact$variable %in% output.vars,c('ate.new')]
+ out.mat.x = final.mat.redact[final.mat.redact$subset == 'all'&final.mat.redact$variable %in% output.vars,c('x.mean.new')]
+ Ns = c('N',max(final.mat.redact$N[final.mat.redact$subset=='all']),
+	max(final.mat.redact$N[final.mat.redact$subset=='no.car']),
+	max(final.mat.redact$N[final.mat.redact$subset=='all'])
+	)
+
+ h1 = c('',paste('(',1:3,')',sep = ''))
+ h2 = c('','all respondents','waits on platform','all respondents')
+ h3 = c('question','ATE (p)','CATE (p)','T1 levels (sd)')
+ hs = rbind(h1,h2,h3)
+ row.names(hs) = NULL
+	
+ out.mat = cbind(out.mat.a,cbind(out.mat.c,out.mat.x))
+ out.mat = cbind(var.names,out.mat)
+ out.mat = rbind(out.mat,Ns)
+ 
+ out.mat = rbind(hs,out.mat)
+ 
+ out.table = xtable(out.mat, digits = 3)
+
+ gt(out.table)
+
+
+
+```
+\newpage
+
+Figure 2
+
+Description from the text: 
+
+Time effects. ATE and 95% confidence intervals for 3-d treatment (solid circle) and 10-d treatment (open circle). P values from top to bottom generated from a two-tailed test against the Null Hypothesis of no difference in effect between the 3-d and 10-d treatments are P = 0.195, 0.094, and 0.305. n = 55 for 3-d dose and 54 for 10-d dose. Confidence intervals are constructed by drawing the 2.5% and 97.5% quantiles from the randomization distribution.
+
+```{r, results="asis"}
+# Figure 2
+
+# taken from outgraphic_single_pnas.r
+
+# note that this is just one of these little graphs that the replication code provides. 
+# The others are not in the paper and are thus omitted from my report.
+
+
+# graph presets, for formatting the graph.
+
+os = .4
+line.os = .015
+y.point = .75
+ylims = c(0,1.1)
+xlims = c(-.35,.35)
+points.cex = 4
+lab.cex = 1.5
+line.lwd = 4.5
+axis.cex = 1.25
+
+colors = brewer.pal(3,'Paired')[1:2] ##colors for pairs used in plots below
+
+####dose graph
+
+# par is like parameters, looks like we are setting something 
+# to do with alignment on the page with these, found out by trial and error
+par(mfrow = c(3,1)) 
+par(mar = c(5,0,1,0))
+par(bty = 'n')
+
+	
+##dose response graph
+out.mat = final.mat.dose[,c('variable','subset','ate','quantile.lower','quantile.upper')]
+out.mat$ate = as.numeric(as.character(out.mat$ate))
+out.mat$quantile.lower = as.numeric(as.character(out.mat$quantile.lower))
+out.mat$quantile.upper = as.numeric(as.character(out.mat$quantile.upper))
+
+out.mat.ta = out.mat[out.mat$subset == 'ta'&out.mat$variable %in% output.vars,]
+out.mat.tb = out.mat[out.mat$subset == 'tb'&out.mat$variable %in% output.vars,]
+
+# actually graphing the data
+for(i in 1:length(var.names)){
+	plot(x  = out.mat.ta$ate[i], y = y.point, 
+		xlim = xlims,
+		ylim = ylims,
+		ylab = '',
+		xlab = var.names[i],
+		yaxt = 'n',
+		type = 'n',
+		cex.lab = lab.cex,
+		cex.axis = axis.cex)
+	lines(x = c(out.mat.ta$quantile.lower[i],out.mat.ta$ate[i]-line.os), 
+			y = c(y.point,y.point),
+			lty = 1,
+			col = colors[1],
+			lwd = line.lwd)
+	lines(x = c(out.mat.ta$ate[i]+line.os,out.mat.ta$quantile.upper[i]), 
+			y = c(y.point,y.point),
+			lty = 1,
+			col = colors[1],
+			lwd = line.lwd)
+	lines(x = c(out.mat.tb$quantile.lower[i],out.mat.tb$ate[i]-line.os), 
+			y = c(y.point-os,y.point-os),
+			lty = 1,
+			col = colors[2],
+			lwd = line.lwd)
+	lines(x = c(out.mat.tb$ate[i]+line.os,out.mat.tb$quantile.upper[i]), 
+			y = c(y.point-os,y.point-os),
+			lty = 1,
+			col = colors[2],
+			lwd = line.lwd)
+
+	points(x  = out.mat.ta$ate[i], y = y.point,
+		pch = 19,
+		cex = points.cex,
+		col = colors[1])
+	points(x  = out.mat.tb$ate[i], y = y.point - os,
+		pch = 1,
+		cex = points.cex,
+		col = colors[2])
+}
+
+
+```
+
+
+\newpage
+Table 2
+
+
+```{r, results="asis"}
+
+# Table 2
+
+
+# balance_check.r
+
+
+
+
+# from the documentation, xBalance does the following:
+
+# Given covariates, a treatment variable, and a stratifying factor, 
+# calculates standardized mean differences along each covariate, 
+# with and without the stratification and tests for conditional 
+# independence of the treatment variable and the covariates within strata.
+
+# in effect, it seems like it groups things based on stratifying factors and finds statistics surrounding them 
+balance_table <- xBalance(fmla = treatment ~ liberal+republican+obama.disapprove+ride.everyday+voted.2010+romney.voter+Hispanics.x+age+residency.new+hispanic.new+college+income.new+male+white, 
+                          data = pnas_data, 
+                          report = c("std.diffs","z.scores","adj.means","chisquare.test"), 
+                          strata = factor(pnas_data$station))
+
+balance_xtable <- xtable(balance_table$results[,1:4,], 
+                         label="Table 2. Covariate balance across treatment conditions", 
+                         digits=2,
+                         align = "lrrrr")
+
+# shoutout to Helen for this code, pretty cool when 
+select(balance_xtable, 'treatment=0', 'treatment=1', std.diff, z) %>%  
+  gt(rownames_to_stub = TRUE )
+
+```
+
+Table 3 is not completed because the data and the information are not included in the link above.

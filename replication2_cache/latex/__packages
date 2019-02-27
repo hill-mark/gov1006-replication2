@@ -1,0 +1,17 @@
+base
+janitor
+xtable
+SparseM
+RItools
+ri
+RColorBrewer
+gt
+dplyr
+tidyverse
+ggplot2
+tibble
+tidyr
+readr
+purrr
+stringr
+forcats

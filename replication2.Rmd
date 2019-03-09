@@ -39,6 +39,8 @@ prime_data  <- read.csv("dataverse_files/pnas_dat/prime_data.csv")
 
 ```
 
+Always a good idea to include an abstract.
+
 # Table 1
 ```{r, main}
 ###inference
@@ -117,6 +119,10 @@ colnames(final.mat) = c('variable','subset','N','ate','greater.p.value','lesser.
 final.mat.main = final.mat ##final.mat for output creation later
 
 gt(final.mat.main)
+
+# definitely would be good to format this table a bit more (column headers, rounding, footnotes, etc) 
+# and see if you make it fit a little more nicely on the page. 
+# in its current state it appears a bit messy
 ```
 
 \newpage
@@ -169,6 +175,12 @@ labs(x = "Standard Differences in Means", y = "variable")
 
 ```
 \newpage
+
+For future extensions I would recommend talking a little more about your extension. Why did you choose to do what you did? What does it show? What are the advantages/disadvantages of this method over the one's used by the author? How does it help you or the reader better understand the results presented in the original paper? The extension is your opportunity to show us what you've learned in the class and how to apply it, so tell us what you're thinking.
+
+Making comments/notes about what we talked about in class where the code gets complex might be helpful moving forward.
+
+The figure and the original table 2 that was supposed to be replicated is missing in the PDF output and code. You may have had it in earlier versions before the extension, so no worries, but in the future make sure you keep all the original parts of the replication and then include your extension at the end or in a separate file, whichever you prefer.
 
 ## References
 
